@@ -6,6 +6,7 @@ import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.TimerTask;
 
 import javax.imageio.ImageIO;
 import javax.swing.JButton;
@@ -32,16 +33,18 @@ import org.opencv.objdetect.CascadeClassifier;
 public class View {
 
 	private JFrame frame;
-	private JPanel imagesPanel;
 	private JPanel imageTop;
 	private JPanel imageBottom;
 	
 	private Mat videoFrame;
+	private Mat videoFramePrev;
 	private Mat computedFrame;
 	private MatOfByte videoFrameBytes;
 	private VideoCapture vc;
 	
-	private Point handPosition;
+	private Point handPosition = new Point();
+	private Point prevHandPosition = new Point();
+	private int move = 0;
 	
 	public View() {
 		initializeGUI();
@@ -76,6 +79,7 @@ public class View {
 			public void run() {
 				try {
 					videoFrame = new Mat();
+					videoFramePrev = new Mat();
 					computedFrame = new Mat();
 					videoFrameBytes = new MatOfByte();
 					vc = new VideoCapture(0);
@@ -106,11 +110,13 @@ public class View {
 	
 	private void captureImage() {
 		try {
-	         vc.retrieve(videoFrame);
-	         locate();
-	         showFrame();
-	         } catch(Exception e) {
-	        	 e.printStackTrace();
+			videoFramePrev = videoFrame.clone();
+			vc.retrieve(videoFrame);
+			locate();
+			move();
+			showFrame();
+		} catch(Exception e) {
+			e.printStackTrace();
         }
 	}
 	
@@ -132,29 +138,28 @@ public class View {
 	
 	public void locate() {
 		
-//		Imgproc.cvtColor(videoFrame, videoFrame, Imgproc.COLOR_BGR2HSV);
-//		Core.inRange(videoFrame, new Scalar(120, 55, 65, 0), new Scalar(180, 256, 256 ,0), computedFrame);
-//		Core.inRange(videoFrame, new Scalar(0, 25, 30), new Scalar(20, 150, 180), computedFrame);
+		// rozmazujê aby nie by³o szumów
+		Imgproc.blur(videoFrame, videoFrame, new Size(9,9));
 		
-		Imgproc.cvtColor(videoFrame, videoFrame, Imgproc.COLOR_RGB2HSV);
-//		Imgproc.cvtColor(videoFrame, videoFrame, Imgproc.COLOR_RGB2GRAY);
-//		Imgproc.equalizeHist(videoFrame, videoFrame);
-		Core.inRange(videoFrame, new Scalar(0, 0, 0), new Scalar(40, 60, 256), computedFrame);
+		// ró¿nica klatek
+		Core.subtract(videoFramePrev, videoFrame, computedFrame);
 
-		// czarnobia³y
-//		Core.inRange(videoFrame, new Scalar(150), new Scalar(255), computedFrame);
+		Imgproc.cvtColor(computedFrame, computedFrame, Imgproc.COLOR_RGB2GRAY);
+		
+		// rozszerzenie i erozja - zmniejszenie szumów
 		Imgproc.dilate(computedFrame, computedFrame, Imgproc.getStructuringElement(Imgproc.MORPH_DILATE, new Size(10, 10)));
 		Imgproc.erode(computedFrame, computedFrame, Imgproc.getStructuringElement(Imgproc.MORPH_ERODE, new Size(10, 10)));
 
-		// Wyliczam œrodek bia³ego pola
+		Core.inRange(computedFrame, new Scalar(50), new Scalar(255), computedFrame);
 		
+		// Wyliczam œrodek bia³ego pola
 		int sumx = 0;
 		int sumy = 0;
 		int sum = 0;
 		
 		for (int col = 0; col < computedFrame.width(); col++) {
 			for (int row = 0; row < computedFrame.height(); row++) {
-				if (computedFrame.get(row, col)[0] == 255) {
+				if (computedFrame.get(row, col)[0] > 0) {
 					sumx += col;
 					sumy += row;
 					sum += 1;
@@ -162,11 +167,35 @@ public class View {
 			}
 		}
 		
-		if (sum > 0)
-			handPosition = new Point(sumx / sum, sumy / sum);
-		else
-			handPosition = new Point(0, 0);
+		prevHandPosition = handPosition.clone();
 		
-		Core.circle(videoFrame, handPosition, 10, new Scalar(255,0,0), 5);
+		if (sum > (computedFrame.width() * computedFrame.height()) * 0.02) {
+			handPosition = new Point(sumx / sum, sumy / sum);
+		}
+		else {
+			handPosition = new Point(0, 0);
+			move = 0;
+		}
+		
+		// rysujê kó³ko
+		Imgproc.cvtColor(computedFrame, computedFrame, Imgproc.COLOR_GRAY2RGB);
+		Core.circle(computedFrame, handPosition, 10, new Scalar(255,0,0), 5);
+	}
+	
+	private void move() {
+		String direction = new String();
+		
+		if (handPosition.x != 0 && prevHandPosition.x != 0) {
+			move += prevHandPosition.x - handPosition.x;
+		}
+		
+		if (move < -100) {
+			direction = "right";
+		} else if (move > 100) {
+			direction = "left";
+		}
+		
+		Core.putText(computedFrame, "move: " + move + "  " + direction, 
+				new Point(20,20), 0, 0.3, new Scalar(0,255,0));
 	}
 }
