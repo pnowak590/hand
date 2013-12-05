@@ -1,34 +1,28 @@
+import java.awt.AWTException;
 import java.awt.Color;
 import java.awt.GridLayout;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
+import java.awt.event.KeyEvent;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.TimerTask;
 
 import javax.imageio.ImageIO;
-import javax.swing.JButton;
 import javax.swing.JFrame;
 import javax.swing.JPanel;
-import javax.swing.JTextField;
 import javax.swing.border.LineBorder;
-import javax.swing.border.TitledBorder;
 
 import org.opencv.core.Core;
 import org.opencv.core.Mat;
 import org.opencv.core.MatOfByte;
-import org.opencv.core.MatOfRect;
 import org.opencv.core.Point;
-import org.opencv.core.Rect;
 import org.opencv.core.Scalar;
 import org.opencv.core.Size;
 import org.opencv.highgui.Highgui;
 import org.opencv.highgui.VideoCapture;
 import org.opencv.imgproc.Imgproc;
-import org.opencv.objdetect.CascadeClassifier;
 
+import java.awt.Robot;
 
 public class View {
 
@@ -45,6 +39,9 @@ public class View {
 	private Point handPosition = new Point();
 	private Point prevHandPosition = new Point();
 	private int move = 0;
+	
+	long lastEventTime;
+	long interval = 2000;
 	
 	public View() {
 		initializeGUI();
@@ -69,6 +66,16 @@ public class View {
 		
 		frame.setVisible(true);
 		
+		Runtime.getRuntime().addShutdownHook(new Thread(new Runnable() {
+
+	        public void run() {
+	        	System.out.println("On exit");
+	            if (vc!=null)
+	            	vc.release();
+	        }
+	    }));
+		
+		
 		showCamera();
 	}
 	
@@ -84,6 +91,7 @@ public class View {
 					videoFrameBytes = new MatOfByte();
 					vc = new VideoCapture(0);
 					
+					Thread.sleep(1000);
 					vc.open(0);
 					vc.set(Highgui.CV_CAP_PROP_FRAME_WIDTH , 320);
 					vc.set(Highgui.CV_CAP_PROP_FRAME_HEIGHT , 240);
@@ -99,6 +107,7 @@ public class View {
 						Thread.sleep(40);
 					}
 				} catch (InterruptedException e) {
+					vc.release();
 					e.printStackTrace();
 				}
 			}
@@ -113,7 +122,10 @@ public class View {
 			videoFramePrev = videoFrame.clone();
 			vc.retrieve(videoFrame);
 			locate();
-			move();
+			
+			moveWithInterval();
+			//move();
+			
 			showFrame();
 		} catch(Exception e) {
 			e.printStackTrace();
@@ -138,21 +150,21 @@ public class View {
 	
 	public void locate() {
 		
-		// rozmazujê aby nie by³o szumów
+		// rozmazujï¿½ aby nie byï¿½o szumï¿½w
 		Imgproc.blur(videoFrame, videoFrame, new Size(9,9));
 		
-		// ró¿nica klatek
+		// rï¿½nica klatek
 		Core.subtract(videoFramePrev, videoFrame, computedFrame);
 
 		Imgproc.cvtColor(computedFrame, computedFrame, Imgproc.COLOR_RGB2GRAY);
 		
-		// rozszerzenie i erozja - zmniejszenie szumów
+		// rozszerzenie i erozja - zmniejszenie szumï¿½w
 		Imgproc.dilate(computedFrame, computedFrame, Imgproc.getStructuringElement(Imgproc.MORPH_DILATE, new Size(10, 10)));
 		Imgproc.erode(computedFrame, computedFrame, Imgproc.getStructuringElement(Imgproc.MORPH_ERODE, new Size(10, 10)));
 
 		Core.inRange(computedFrame, new Scalar(50), new Scalar(255), computedFrame);
 		
-		// Wyliczam œrodek bia³ego pola
+		// Wyliczam ï¿½rodek biaï¿½ego pola
 		int sumx = 0;
 		int sumy = 0;
 		int sum = 0;
@@ -177,7 +189,7 @@ public class View {
 			move = 0;
 		}
 		
-		// rysujê kó³ko
+		// rysujï¿½ kï¿½ko
 		Imgproc.cvtColor(computedFrame, computedFrame, Imgproc.COLOR_GRAY2RGB);
 		Core.circle(computedFrame, handPosition, 10, new Scalar(255,0,0), 5);
 	}
@@ -191,11 +203,52 @@ public class View {
 		
 		if (move < -100) {
 			direction = "right";
+			nextSlide();
 		} else if (move > 100) {
 			direction = "left";
+			prevSlide();
 		}
 		
 		Core.putText(computedFrame, "move: " + move + "  " + direction, 
 				new Point(20,20), 0, 0.3, new Scalar(0,255,0));
+	}
+	
+	private void moveWithInterval() {
+		long curr = System.currentTimeMillis();
+		if (curr > (lastEventTime + interval)) {
+			move();
+		} else {
+			System.out.println("Damn! U re 2 fast!");
+		}
+	}
+	
+	private void nextSlide() {
+		System.out.println("next slide >");
+		
+		try {
+			Robot r = new Robot();
+			
+			r.keyPress(KeyEvent.VK_RIGHT);
+			lastEventTime = System.currentTimeMillis();
+			
+		} catch (AWTException e) {
+			e.printStackTrace();
+		}
+		
+	}
+	
+	private void prevSlide() {
+		System.out.println("< prev slide");
+		
+		try {
+			Robot r = new Robot();
+			
+			r.keyPress(KeyEvent.VK_LEFT);
+			lastEventTime = System.currentTimeMillis();
+			
+		} catch (AWTException e) {
+			e.printStackTrace();
+		}
+		
 	}
 }
